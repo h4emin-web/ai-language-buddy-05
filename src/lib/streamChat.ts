@@ -4,7 +4,7 @@ const MODEL = 'gemini-2.5-flash'
 const systemPrompts: Record<string, string> = {
   english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 2-3 sentences and always end with a question.`,
   japanese: `あなたは日本語会話チューターです。日本語のみで話してください。2〜3文以内で、必ず質問で締めくくってください。すべての漢字にひらがなのルビを括弧で付けてください（例：学校(がっこう)、食(た)べる）。`,
-  chinese: `你是中文会话辅导老师。只说中文。回答2-3句话，每次必须以问题结尾。所有汉字后面用括号标注拼音（例：你好(nǐ hǎo)、学校(xuéxiào)）。`,
+  chinese: `你是中文会话辅导老师。只说中文。回答2-3句话，每次必须以问题结尾。每次回答后，另起一行写"[拼音]: "，然后写出整句话的拼音（例：[拼音]: nǐ hǎo，wǒ shì lǎoshī。）。`,
 }
 
 const topicStarters: Record<string, Record<string, string>> = {

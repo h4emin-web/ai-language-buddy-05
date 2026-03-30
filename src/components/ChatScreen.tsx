@@ -80,8 +80,11 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
 
   // Gemini TTS
   const speak = useCallback(async (text: string) => {
-    // Strip ruby/pinyin readings like 学校(がっこう) → 学校, 你好(nǐ hǎo) → 你好
-    const ttsText = text.replace(/\([\u3040-\u30FFa-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s·]+\)/gi, '');
+    // Strip ruby readings like 学校(がっこう) → 学校, and remove [拼音]: lines for Chinese
+    const ttsText = text
+      .replace(/\[拼音\]:.*$/gm, '')
+      .replace(/\([\u3040-\u30FFa-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s·]+\)/gi, '')
+      .trim();
     setIsTTSLoading(true);
     try {
       await speakWithGemini(
@@ -336,7 +339,15 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
               >
                 {msg.role === "assistant" ? (
                   <div className="prose prose-sm max-w-none dark:prose-invert">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    {msg.content.split('\n').map((line, i) =>
+                      line.startsWith('[拼音]:') ? (
+                        <p key={i} className="text-xs text-muted-foreground mt-1 not-prose">
+                          {line.replace('[拼音]:', '').trim()}
+                        </p>
+                      ) : (
+                        <ReactMarkdown key={i}>{line}</ReactMarkdown>
+                      )
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
