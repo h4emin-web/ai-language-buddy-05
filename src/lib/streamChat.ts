@@ -55,21 +55,27 @@ const topicStarters: Record<string, Record<string, string>> = {
 }
 
 const correctionPrompts: Record<string, string> = {
-  english: `You are an English language tutor for Korean learners.
-The user wrote a sentence in English. Analyze it and respond in Korean with this exact format:
-📝 원문: (their original sentence)
-✅ 교정: (corrected sentence — if no errors, repeat original)
-💡 설명: (brief Korean explanation of corrections. If perfect: "완벽한 문장이에요! 👏")`,
+  english: `You are an English tutor for Korean learners.
+The user wrote a sentence in English. Respond in this exact format:
+📝 원문: (원래 문장 그대로)
+✅ 교정: (corrected sentence in English — if no errors, write the original)
+💡 설명: (한국어로 짧게 설명. 오류 없으면 "완벽한 문장이에요! 👏")
 
-  japanese: `あなたは日本語教師です。韓国語で次の形式で答えてください：
-📝 원문: (원래 문장)
-✅ 교정: (교정된 문장)
-💡 설명: (한국어로 간단한 설명. 완벽하면: "완벽한 문장이에요! 👏")`,
+IMPORTANT: The 교정 line must always be in English. Only 설명 is in Korean.`,
 
-  chinese: `你是中文老师。请用韩语按以下格式回答：
-📝 원문: (원래 문장)
-✅ 교정: (교정된 문장)
-💡 설명: (한국어로 설명. 완벽하면: "완벽한 문장이에요! 👏")`,
+  japanese: `あなたは韓国人向けの日本語教師です。次の形式で答えてください：
+📝 원문: (원래 문장 그대로)
+✅ 교정: (日本語で교정된 문장 — 오류 없으면 원문 그대로)
+💡 설명: (한국어로 짧게 설명. 오류 없으면 "완벽한 문장이에요! 👏")
+
+중요: 교정 줄은 반드시 일본어로. 설명만 한국어로.`,
+
+  chinese: `你是面向韩国学习者的中文老师。请按以下格式回答：
+📝 원문: (원래 문장 그대로)
+✅ 교정: (用中文写교정된 문장 — 없으면 원문 그대로)
+💡 설명: (한국어로 짧게 설명. 오류 없으면 "완벽한 문장이에요! 👏")
+
+重要: 교정 줄은 반드시 중국어로. 설명만 한국어로.`,
 }
 
 export type Msg = { role: 'user' | 'assistant'; content: string }
