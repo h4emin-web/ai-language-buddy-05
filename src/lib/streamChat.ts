@@ -80,14 +80,42 @@ IMPORTANT: The 교정 line must always be in English. Only 설명 is in Korean.`
 
 export type Msg = { role: 'user' | 'assistant'; content: string }
 
-function toGeminiContents(messages: Msg[]) {
+// AI가 이미 "해당 언어로만 말하겠다"고 확인한 것처럼 히스토리를 시작
+// → Gemini가 언어 지시를 훨씬 잘 따름
+const languagePriming: Record<string, { user: string; model: string }> = {
+  english: {
+    user: "Let's start our English conversation practice.",
+    model: "Sounds great! I'll speak English only for our entire session — no Korean at all. Let's go!",
+  },
+  japanese: {
+    user: '日本語の練習を始めましょう。',
+    model: 'はい、もちろんです！今日のセッションはずっと日本語のみで話します。韓国語は一切使いません。始めましょう！',
+  },
+  chinese: {
+    user: '让我们开始中文练习。',
+    model: '好的！整个对话我只说中文，绝对不用韩语。我们开始吧！',
+  },
+}
+
+function toGeminiContents(messages: Msg[], language: string) {
+  const priming = languagePriming[language]
+  const primingTurns = priming
+    ? [
+        { role: 'user', parts: [{ text: priming.user }] },
+        { role: 'model', parts: [{ text: priming.model }] },
+      ]
+    : []
+
   if (messages.length === 0) {
-    return [{ role: 'user', parts: [{ text: 'Start.' }] }]
+    return [...primingTurns, { role: 'user', parts: [{ text: 'Start.' }] }]
   }
-  return messages.map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }))
+  return [
+    ...primingTurns,
+    ...messages.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    })),
+  ]
 }
 
 export async function streamChat({
@@ -115,7 +143,7 @@ export async function streamChat({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: toGeminiContents(messages),
+        contents: toGeminiContents(messages, language),
         generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
       }),
     }
