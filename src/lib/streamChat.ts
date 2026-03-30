@@ -168,8 +168,10 @@ Respond ONLY with valid JSON, no markdown:
 {
   "hasKorean": true,
   "translated": "complete message rewritten in ${targetLang}",
-  "explanation": "한 줄로 변환 내용 설명 (예: 배고파→I'm hungry, 시장→market)"
-}`
+  "explanation": "한 줄로 변환 내용 설명, 반드시 한국어로 (예: 밥→ご飯, 피곤해→累)"
+}
+
+IMPORTANT: The "explanation" field must always be written in Korean, regardless of the target language.`
 
   const resp = await fetch(
     `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
