@@ -146,6 +146,66 @@ export async function streamChat({
   onDone()
 }
 
+export interface KoreanTranslateResult {
+  hasKorean: boolean
+  translated: string
+  explanation: string
+}
+
+const langNames: Record<string, string> = {
+  english: 'English',
+  japanese: '日本語',
+  chinese: '中文',
+}
+
+export async function autoTranslateKorean(
+  text: string,
+  language: string,
+  apiKey: string,
+): Promise<KoreanTranslateResult> {
+  const targetLang = langNames[language] || 'English'
+
+  const prompt = `The user is practicing ${targetLang} but mixed in some Korean words or phrases.
+
+User's message: "${text}"
+
+Your job:
+1. Find every Korean word or phrase in the message
+2. Translate each one into ${targetLang} naturally in context
+3. Return the entire message rewritten fully in ${targetLang}
+
+Respond ONLY with valid JSON, no markdown:
+{
+  "hasKorean": true,
+  "translated": "complete message rewritten in ${targetLang}",
+  "explanation": "한 줄로 변환 내용 설명 (예: 배고파→I'm hungry, 시장→market)"
+}`
+
+  const resp = await fetch(
+    `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1 },
+      }),
+    }
+  )
+
+  if (!resp.ok) throw new Error(`translate HTTP ${resp.status}`)
+
+  const data = await resp.json()
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  const clean = raw.replace(/```json|```/g, '').trim()
+
+  try {
+    return JSON.parse(clean) as KoreanTranslateResult
+  } catch {
+    return { hasKorean: false, translated: text, explanation: '' }
+  }
+}
+
 export async function correctText(text: string, language: string, apiKey: string): Promise<string> {
   const lang = language || 'english'
   const prompt = correctionPrompts[lang] || correctionPrompts.english

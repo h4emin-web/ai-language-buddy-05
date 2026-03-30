@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, MicOff, CheckCircle, Loader2, Clock, Phone, Volume2 } from "lucide-react";
-import { streamChat, correctText, type Msg } from "@/lib/streamChat";
+import { streamChat, correctText, autoTranslateKorean, type Msg } from "@/lib/streamChat";
 import { speakWithGemini, stopSpeaking } from "@/lib/tts";
 import type { Language, Topic } from "./SetupScreen";
 import ReactMarkdown from "react-markdown";
@@ -46,6 +46,8 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
   const [correctingIdx, setCorrectingIdx] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [liveTranscript, setLiveTranscript] = useState("");
+  const [koreanNotes, setKoreanNotes] = useState<Record<number, string>>({});
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const startTimeRef = useRef(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -168,6 +170,30 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     }
   }, [isLoading, language, topic, apiKey, speak]);
 
+  // Korean 감지 → 번역 → AI 전송
+  const handleUserInput = useCallback(async (rawText: string) => {
+    const hasKoreanChars = /[가-힣]/.test(rawText);
+    if (!hasKoreanChars) {
+      sendMessage(rawText);
+      return;
+    }
+    setIsTranslating(true);
+    try {
+      const result = await autoTranslateKorean(rawText, language, apiKey);
+      if (result.hasKorean) {
+        const noteIdx = messagesRef.current.length; // 곧 추가될 user 메시지 index
+        setKoreanNotes((prev) => ({ ...prev, [noteIdx]: result.explanation }));
+        sendMessage(result.translated);
+      } else {
+        sendMessage(rawText);
+      }
+    } catch {
+      sendMessage(rawText);
+    } finally {
+      setIsTranslating(false);
+    }
+  }, [language, apiKey, sendMessage]);
+
   // STT — click to start, click again to stop & send
   const toggleListening = useCallback(() => {
     if (isLoading || isSpeaking || isTTSLoading) return;
@@ -219,7 +245,7 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
       setLiveTranscript("");
       const finalText = accumulatedRef.current.trim();
       accumulatedRef.current = "";
-      if (finalText) sendMessage(finalText);
+      if (finalText) handleUserInput(finalText);
     };
 
     r.onerror = (event: Event & { error: string }) => {
@@ -231,7 +257,7 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
 
     recognitionRef.current = r;
     r.start();
-  }, [isListening, isLoading, isSpeaking, isTTSLoading, language, sendMessage]);
+  }, [isListening, isLoading, isSpeaking, isTTSLoading, language, handleUserInput]);
 
   const handleCorrect = useCallback(async (idx: number, text: string) => {
     if (corrections[idx] || correctingIdx === idx) return;
@@ -249,16 +275,18 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
-  const micDisabled = isLoading || isSpeaking || isTTSLoading;
-  const statusText = isTTSLoading
-    ? "AI 음성 생성 중..."
-    : isSpeaking
-      ? "AI가 말하고 있어요"
-      : isLoading
-        ? "AI가 생각하고 있어요..."
-        : isListening
-          ? "듣고 있어요 — 다시 탭하여 전송"
-          : "탭하여 말하기";
+  const micDisabled = isLoading || isSpeaking || isTTSLoading || isTranslating;
+  const statusText = isTranslating
+    ? "한국어 번역 중..."
+    : isTTSLoading
+      ? "AI 음성 생성 중..."
+      : isSpeaking
+        ? "AI가 말하고 있어요"
+        : isLoading
+          ? "AI가 생각하고 있어요..."
+          : isListening
+            ? "듣고 있어요 — 다시 탭하여 전송"
+            : "탭하여 말하기";
 
   return (
     <div className="flex flex-col h-screen max-h-screen">
@@ -316,6 +344,15 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
                 )}
               </div>
             </div>
+
+            {msg.role === "user" && koreanNotes[idx] && (
+              <div className="flex justify-end mt-1">
+                <div className="max-w-[85%] flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <span className="shrink-0">🔄</span>
+                  <span>{koreanNotes[idx]}</span>
+                </div>
+              </div>
+            )}
 
             {msg.role === "user" && (
               <div className="flex justify-end mt-1.5">
