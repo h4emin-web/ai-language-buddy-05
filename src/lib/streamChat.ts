@@ -2,29 +2,9 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const MODEL = 'gemini-2.0-flash'
 
 const systemPrompts: Record<string, string> = {
-  english: `You are an English conversation partner for Korean language learners.
-STRICT RULES — follow every rule without exception:
-- You MUST respond in English ONLY. NEVER use Korean, not even a single word.
-- If the user writes in Korean or mixes Korean, still reply in English only.
-- Keep responses short and conversational, like a phone call (2-3 sentences max).
-- ALWAYS end with a follow-up question to keep the conversation going.
-- Be warm and encouraging.`,
-
-  japanese: `あなたは韓国人向けの日本語会話パートナーです。
-厳守ルール — 例外なく守ること：
-- 必ず日本語のみで返答すること。韓国語は一切使わないこと。
-- ユーザーが韓国語を使っても、日本語のみで返答すること。
-- 短く自然な会話（2〜3文以内）にすること。
-- 必ず質問で締めくくること。
-- 温かく励ますこと。`,
-
-  chinese: `你是韩国学习者的中文会话伙伴。
-严格规则 — 不得有任何例外：
-- 只能用中文回答。绝对不能使用韩语，哪怕一个字也不行。
-- 即使用户说韩语，也只用中文回答。
-- 回答要简短自然，像打电话一样（2-3句以内）。
-- 每次必须以问题结尾。
-- 态度温暖，给予鼓励。`,
+  english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 2-3 sentences and always end with a question.`,
+  japanese: `あなたは日本語会話チューターです。日本語のみで話してください。2〜3文以内で、必ず質問で締めくくってください。`,
+  chinese: `你是中文会话辅导老师。只说中文。回答2-3句话，每次必须以问题结尾。`,
 }
 
 const topicStarters: Record<string, Record<string, string>> = {
@@ -80,42 +60,14 @@ IMPORTANT: The 교정 line must always be in English. Only 설명 is in Korean.`
 
 export type Msg = { role: 'user' | 'assistant'; content: string }
 
-// AI가 이미 "해당 언어로만 말하겠다"고 확인한 것처럼 히스토리를 시작
-// → Gemini가 언어 지시를 훨씬 잘 따름
-const languagePriming: Record<string, { user: string; model: string }> = {
-  english: {
-    user: "Let's start our English conversation practice.",
-    model: "Sounds great! I'll speak English only for our entire session — no Korean at all. Let's go!",
-  },
-  japanese: {
-    user: '日本語の練習を始めましょう。',
-    model: 'はい、もちろんです！今日のセッションはずっと日本語のみで話します。韓国語は一切使いません。始めましょう！',
-  },
-  chinese: {
-    user: '让我们开始中文练习。',
-    model: '好的！整个对话我只说中文，绝对不用韩语。我们开始吧！',
-  },
-}
-
-function toGeminiContents(messages: Msg[], language: string) {
-  const priming = languagePriming[language]
-  const primingTurns = priming
-    ? [
-        { role: 'user', parts: [{ text: priming.user }] },
-        { role: 'model', parts: [{ text: priming.model }] },
-      ]
-    : []
-
+function toGeminiContents(messages: Msg[]) {
   if (messages.length === 0) {
-    return [...primingTurns, { role: 'user', parts: [{ text: 'Start.' }] }]
+    return [{ role: 'user', parts: [{ text: 'Start.' }] }]
   }
-  return [
-    ...primingTurns,
-    ...messages.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
-  ]
+  return messages.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
 }
 
 export async function streamChat({
@@ -143,7 +95,7 @@ export async function streamChat({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: toGeminiContents(messages, language),
+        contents: toGeminiContents(messages),
         generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
       }),
     }
