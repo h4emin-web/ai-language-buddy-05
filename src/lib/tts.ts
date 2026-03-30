@@ -2,7 +2,6 @@
 // Returns base64 LINEAR16 PCM (24kHz, mono)
 
 const TTS_MODELS = [
-  'gemini-2.5-pro-preview-tts',
   'gemini-2.5-flash-preview-tts',
 ]
 
