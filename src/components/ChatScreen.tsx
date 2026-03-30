@@ -42,7 +42,7 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
   const [interimText, setInterimText] = useState("");
   const startTimeRef = useRef(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const synthRef = useRef(window.speechSynthesis);
   const messagesRef = useRef<Msg[]>([]);
 
