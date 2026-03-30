@@ -1,5 +1,5 @@
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
-const MODEL = 'gemini-2.0-flash'
+const MODEL = 'gemini-2.5-flash'
 
 const systemPrompts: Record<string, string> = {
   english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 2-3 sentences and always end with a question.`,
