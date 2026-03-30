@@ -1,105 +1,171 @@
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
-const CORRECT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/correct`;
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+const MODEL = 'gemini-2.0-flash'
 
-export type Msg = { role: "user" | "assistant"; content: string };
+const systemPrompts: Record<string, string> = {
+  english: `You are a friendly English conversation partner for Korean language learners.
+Rules:
+- Speak ONLY in English
+- Keep responses conversational and natural, like a phone call (2-3 sentences max)
+- ALWAYS end with a follow-up question to keep conversation going
+- Be encouraging and patient with mistakes`,
+
+  japanese: `あなたは韓国人の日本語学習者のための親しみやすい会話パートナーです。
+ルール:
+- 日本語のみで話してください
+- 電話のような自然な会話にしてください（2〜3文以内）
+- 必ず質問で締めくくって会話を続けてください
+- 励ましながら、忍耐強く対応してください`,
+
+  chinese: `你是韩国中文学习者的友好会话伙伴。
+规则：
+- 只说中文
+- 保持自然对话，像打电话（2-3句以内）
+- 每次回答必须以问题结尾，保持对话持续
+- 要鼓励和耐心`,
+}
+
+const topicStarters: Record<string, Record<string, string>> = {
+  english: {
+    daily: "Start by warmly asking about the learner's day or daily routine.",
+    travel: "Start by asking about their travel experiences or dream destinations.",
+    food: "Start by asking about their favorite food or a recent meal.",
+    movies: "Start by asking about a movie or TV show they watched recently.",
+    work: "Start by asking about their job or career aspirations.",
+    free: "Start with a warm greeting and let the conversation flow naturally.",
+  },
+  japanese: {
+    daily: 'まず今日の出来事や日常について聞いてください。',
+    travel: 'まず旅行の経験や行きたい場所について聞いてください。',
+    food: 'まず好きな食べ物や最近の食事について聞いてください。',
+    movies: 'まず最近見た映画やドラマについて聞いてください。',
+    work: 'まず仕事やキャリアの目標について聞いてください。',
+    free: 'フレンドリーな挨拶から始めて、自然に会話を進めてください。',
+  },
+  chinese: {
+    daily: '先问问他们今天过得怎么样或者日常生活。',
+    travel: '先问问他们的旅行经历或者想去的地方。',
+    food: '先问问他们喜欢的食物或最近吃了什么。',
+    movies: '先问问他们最近看了什么电影或电视剧。',
+    work: '先问问他们的工作或职业目标。',
+    free: '用友好的问候开始，让对话自然进行。',
+  },
+}
+
+const correctionPrompts: Record<string, string> = {
+  english: `You are an English language tutor for Korean learners.
+The user wrote a sentence in English. Analyze it and respond in Korean with this exact format:
+📝 원문: (their original sentence)
+✅ 교정: (corrected sentence — if no errors, repeat original)
+💡 설명: (brief Korean explanation of corrections. If perfect: "완벽한 문장이에요! 👏")`,
+
+  japanese: `あなたは日本語教師です。韓国語で次の形式で答えてください：
+📝 원문: (원래 문장)
+✅ 교정: (교정된 문장)
+💡 설명: (한국어로 간단한 설명. 완벽하면: "완벽한 문장이에요! 👏")`,
+
+  chinese: `你是中文老师。请用韩语按以下格式回答：
+📝 원문: (원래 문장)
+✅ 교정: (교정된 문장)
+💡 설명: (한국어로 설명. 완벽하면: "완벽한 문장이에요! 👏")`,
+}
+
+export type Msg = { role: 'user' | 'assistant'; content: string }
+
+function toGeminiContents(messages: Msg[]) {
+  if (messages.length === 0) {
+    return [{ role: 'user', parts: [{ text: 'Start.' }] }]
+  }
+  return messages.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
+}
 
 export async function streamChat({
   messages,
   language,
   topic,
+  apiKey,
   onDelta,
   onDone,
 }: {
-  messages: Msg[];
-  language: string;
-  topic: string;
-  onDelta: (deltaText: string) => void;
-  onDone: () => void;
+  messages: Msg[]
+  language: string
+  topic: string
+  apiKey: string
+  onDelta: (chunk: string) => void
+  onDone: () => void
 }) {
-  const resp = await fetch(CHAT_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
-    body: JSON.stringify({ messages, language, topic }),
-  });
+  const lang = language || 'english'
+  const systemPrompt = `${systemPrompts[lang] || systemPrompts.english}\n\n${topicStarters[lang]?.[topic] || topicStarters.english.free}`
+
+  const resp = await fetch(
+    `${GEMINI_BASE}/models/${MODEL}:streamGenerateContent?key=${encodeURIComponent(apiKey)}&alt=sse`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: toGeminiContents(messages),
+        generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
+      }),
+    }
+  )
 
   if (!resp.ok || !resp.body) {
-    const errorData = await resp.json().catch(() => ({}));
-    throw new Error(errorData.error || "스트림 시작 실패");
+    const err = await resp.json().catch(() => ({}))
+    throw new Error(err.error?.message || `HTTP ${resp.status}`)
   }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let textBuffer = "";
-  let streamDone = false;
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
 
-  while (!streamDone) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    textBuffer += decoder.decode(value, { stream: true });
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
 
-    let newlineIndex: number;
-    while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-      let line = textBuffer.slice(0, newlineIndex);
-      textBuffer = textBuffer.slice(newlineIndex + 1);
-
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line.startsWith(":") || line.trim() === "") continue;
-      if (!line.startsWith("data: ")) continue;
-
-      const jsonStr = line.slice(6).trim();
-      if (jsonStr === "[DONE]") {
-        streamDone = true;
-        break;
-      }
-
+    let newlineIdx: number
+    while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, newlineIdx).replace(/\r$/, '')
+      buffer = buffer.slice(newlineIdx + 1)
+      if (!line.startsWith('data: ')) continue
+      const jsonStr = line.slice(6).trim()
+      if (!jsonStr) continue
       try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-        if (content) onDelta(content);
+        const parsed = JSON.parse(jsonStr)
+        const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+        if (text) onDelta(text)
       } catch {
-        textBuffer = line + "\n" + textBuffer;
-        break;
+        // ignore malformed chunks
       }
     }
   }
 
-  if (textBuffer.trim()) {
-    for (let raw of textBuffer.split("\n")) {
-      if (!raw) continue;
-      if (raw.endsWith("\r")) raw = raw.slice(0, -1);
-      if (raw.startsWith(":") || raw.trim() === "") continue;
-      if (!raw.startsWith("data: ")) continue;
-      const jsonStr = raw.slice(6).trim();
-      if (jsonStr === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-        if (content) onDelta(content);
-      } catch { /* ignore */ }
-    }
-  }
-
-  onDone();
+  onDone()
 }
 
-export async function correctText(text: string, language: string): Promise<string> {
-  const resp = await fetch(CORRECT_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
-    body: JSON.stringify({ text, language }),
-  });
+export async function correctText(text: string, language: string, apiKey: string): Promise<string> {
+  const lang = language || 'english'
+  const prompt = correctionPrompts[lang] || correctionPrompts.english
+
+  const resp = await fetch(
+    `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: `${prompt}\n\nSentence: "${text}"` }] }],
+      }),
+    }
+  )
 
   if (!resp.ok) {
-    const errorData = await resp.json().catch(() => ({}));
-    throw new Error(errorData.error || "교정 실패");
+    const err = await resp.json().catch(() => ({}))
+    throw new Error(err.error?.message || `HTTP ${resp.status}`)
   }
 
-  const data = await resp.json();
-  return data.correction;
+  const data = await resp.json()
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '교정 결과를 가져올 수 없습니다.'
 }

@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, CheckCircle, Loader2, Clock, ArrowLeft, Phone, Volume2 } from "lucide-react";
+import { Mic, MicOff, CheckCircle, Loader2, Clock, Phone, Volume2 } from "lucide-react";
 import { streamChat, correctText, type Msg } from "@/lib/streamChat";
+import { speakWithGemini, stopSpeaking } from "@/lib/tts";
 import type { Language, Topic } from "./SetupScreen";
 import ReactMarkdown from "react-markdown";
 
 interface ChatScreenProps {
   language: Language;
   topic: Topic;
+  apiKey: string;
   onEnd: () => void;
 }
 
@@ -31,62 +33,70 @@ const speechLangMap: Record<Language, string> = {
   chinese: "zh-CN",
 };
 
-const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
+// Declare SpeechRecognition types (not in all TS envs)
+type SpeechRecognitionInstance = InstanceType<typeof window.SpeechRecognition>;
+
+const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isTTSLoading, setIsTTSLoading] = useState(false);
   const [corrections, setCorrections] = useState<Record<number, string>>({});
   const [correctingIdx, setCorrectingIdx] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [interimText, setInterimText] = useState("");
+  const [liveTranscript, setLiveTranscript] = useState("");
+
   const startTimeRef = useRef(Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const synthRef = useRef(window.speechSynthesis);
   const messagesRef = useRef<Msg[]>([]);
+  const accumulatedRef = useRef(""); // manual-stop STT accumulator
 
-  // Keep messagesRef in sync
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Timer
   useEffect(() => {
-    const interval = setInterval(() => {
+    const id = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(id);
   }, []);
 
   // Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, interimText]);
+  }, [messages, liveTranscript]);
 
-  // TTS: speak text
-  const speak = useCallback((text: string) => {
-    return new Promise<void>((resolve) => {
-      synthRef.current.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = speechLangMap[language];
-      utterance.rate = 0.9;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        resolve();
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        resolve();
-      };
-      synthRef.current.speak(utterance);
-    });
-  }, [language]);
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+      recognitionRef.current?.abort();
+    };
+  }, []);
+
+  // Gemini TTS
+  const speak = useCallback(async (text: string) => {
+    setIsTTSLoading(true);
+    try {
+      await speakWithGemini(
+        text,
+        apiKey,
+        () => { setIsTTSLoading(false); setIsSpeaking(true); },
+        () => setIsSpeaking(false),
+      );
+    } catch (e) {
+      console.error("TTS error:", e);
+      setIsTTSLoading(false);
+      setIsSpeaking(false);
+    }
+  }, [apiKey]);
 
   // Start conversation with AI greeting
   useEffect(() => {
-    const startConversation = async () => {
+    let cancelled = false;
+    const start = async () => {
       setIsLoading(true);
       let assistantSoFar = "";
       try {
@@ -94,17 +104,20 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
           messages: [],
           language,
           topic,
+          apiKey,
           onDelta: (chunk) => {
+            if (cancelled) return;
             assistantSoFar += chunk;
             setMessages([{ role: "assistant", content: assistantSoFar }]);
           },
           onDone: () => {
+            if (cancelled) return;
             setIsLoading(false);
-            // Speak the greeting
             if (assistantSoFar) speak(assistantSoFar);
           },
         });
       } catch (e) {
+        if (cancelled) return;
         console.error(e);
         setIsLoading(false);
         const fallback = "안녕하세요! 대화를 시작해볼까요?";
@@ -112,43 +125,38 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
         speak(fallback);
       }
     };
-    startConversation();
+    start();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    return () => {
-      synthRef.current.cancel();
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-    };
-  }, [language, topic, speak]);
-
-  // Send user message and get AI response
+  // Send user message → AI response
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || isLoading) return;
+    const trimmed = text.trim();
+    if (!trimmed || isLoading) return;
 
-    const userMsg: Msg = { role: "user", content: text.trim() };
+    const userMsg: Msg = { role: "user", content: trimmed };
     const newMessages = [...messagesRef.current, userMsg];
     setMessages(newMessages);
     setIsLoading(true);
 
     let assistantSoFar = "";
-    const upsertAssistant = (nextChunk: string) => {
-      assistantSoFar += nextChunk;
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === "assistant") {
-          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
-        }
-        return [...prev, { role: "assistant", content: assistantSoFar }];
-      });
-    };
-
     try {
       await streamChat({
         messages: newMessages,
         language,
         topic,
-        onDelta: (chunk) => upsertAssistant(chunk),
+        apiKey,
+        onDelta: (chunk) => {
+          assistantSoFar += chunk;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant") {
+              return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: assistantSoFar } : m);
+            }
+            return [...prev, { role: "assistant", content: assistantSoFar }];
+          });
+        },
         onDone: () => {
           setIsLoading(false);
           if (assistantSoFar) speak(assistantSoFar);
@@ -158,87 +166,99 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
       console.error(e);
       setIsLoading(false);
     }
-  }, [isLoading, language, topic, speak]);
+  }, [isLoading, language, topic, apiKey, speak]);
 
-  // STT: toggle listening
+  // STT — click to start, click again to stop & send
   const toggleListening = useCallback(() => {
-    if (isLoading || isSpeaking) return;
+    if (isLoading || isSpeaking || isTTSLoading) return;
 
     if (isListening) {
+      // User clicked stop → send accumulated transcript
       recognitionRef.current?.stop();
-      setIsListening(false);
       return;
     }
 
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    type SRConstructor = new () => SpeechRecognitionInstance;
+    const SR: SRConstructor | undefined =
+      (window as unknown as Record<string, SRConstructor>).SpeechRecognition
+      || (window as unknown as Record<string, SRConstructor>).webkitSpeechRecognition;
     if (!SR) {
       alert("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.");
       return;
     }
 
-    const recognition = new SR() as SpeechRecognitionInstance;
-    recognition.lang = speechLangMap[language];
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    recognition.maxAlternatives = 1;
+    accumulatedRef.current = "";
+    stopSpeaking();
 
-    recognition.onstart = () => {
+    const r = new SR() as SpeechRecognitionInstance;
+    r.lang = speechLangMap[language];
+    r.interimResults = true;
+    r.continuous = true;        // keep recording until user stops manually
+    r.maxAlternatives = 1;
+
+    r.onstart = () => {
       setIsListening(true);
-      setInterimText("");
+      setLiveTranscript("");
     };
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    r.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
-      let final = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+        const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          final += transcript;
+          accumulatedRef.current += t;
         } else {
-          interim += transcript;
+          interim = t;
         }
       }
-      if (final) {
-        setInterimText("");
-        sendMessage(final);
-      } else {
-        setInterimText(interim);
-      }
+      setLiveTranscript(accumulatedRef.current + interim);
     };
 
-    recognition.onend = () => {
+    r.onend = () => {
       setIsListening(false);
-      setInterimText("");
+      setLiveTranscript("");
+      const finalText = accumulatedRef.current.trim();
+      accumulatedRef.current = "";
+      if (finalText) sendMessage(finalText);
     };
 
-    recognition.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
+    r.onerror = (event: Event & { error: string }) => {
+      if (event.error !== "no-speech") console.error("STT error:", event.error);
       setIsListening(false);
-      setInterimText("");
+      setLiveTranscript("");
+      accumulatedRef.current = "";
     };
 
-    recognitionRef.current = recognition;
-    recognition.start();
-  }, [isListening, isLoading, isSpeaking, language, sendMessage]);
+    recognitionRef.current = r;
+    r.start();
+  }, [isListening, isLoading, isSpeaking, isTTSLoading, language, sendMessage]);
 
   const handleCorrect = useCallback(async (idx: number, text: string) => {
     if (corrections[idx] || correctingIdx === idx) return;
     setCorrectingIdx(idx);
     try {
-      const result = await correctText(text, language);
+      const result = await correctText(text, language, apiKey);
       setCorrections((prev) => ({ ...prev, [idx]: result }));
     } catch (e) {
       console.error(e);
     } finally {
       setCorrectingIdx(null);
     }
-  }, [corrections, correctingIdx, language]);
+  }, [corrections, correctingIdx, language, apiKey]);
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+
+  const micDisabled = isLoading || isSpeaking || isTTSLoading;
+  const statusText = isTTSLoading
+    ? "AI 음성 생성 중..."
+    : isSpeaking
+      ? "AI가 말하고 있어요"
+      : isLoading
+        ? "AI가 생각하고 있어요..."
+        : isListening
+          ? "듣고 있어요 — 다시 탭하여 전송"
+          : "탭하여 말하기";
 
   return (
     <div className="flex flex-col h-screen max-h-screen">
@@ -247,7 +267,7 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              synthRef.current.cancel();
+              stopSpeaking();
               recognitionRef.current?.abort();
               onEnd();
             }}
@@ -297,7 +317,6 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
               </div>
             </div>
 
-            {/* Correct button for user messages */}
             {msg.role === "user" && (
               <div className="flex justify-end mt-1.5">
                 {corrections[idx] ? (
@@ -323,18 +342,19 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
           </div>
         ))}
 
-        {/* Interim (realtime) speech text */}
-        {interimText && (
+        {/* Live transcript while recording */}
+        {liveTranscript && (
           <div className="flex justify-end">
             <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed bg-primary/20 text-foreground/70 border border-primary/20">
               <div className="flex items-center gap-2">
                 <Mic className="w-3 h-3 animate-pulse shrink-0" />
-                {interimText}
+                {liveTranscript}
               </div>
             </div>
           </div>
         )}
 
+        {/* AI thinking */}
         {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
           <div className="flex justify-start">
             <div className="bg-card border border-border shadow-card px-4 py-3 rounded-2xl rounded-bl-md">
@@ -347,12 +367,15 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
           </div>
         )}
 
-        {/* Speaking indicator */}
-        {isSpeaking && (
+        {/* Speaking indicators */}
+        {(isSpeaking || isTTSLoading) && (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 text-xs text-muted-foreground px-2">
-              <Volume2 className="w-3.5 h-3.5 animate-pulse text-accent" />
-              AI가 말하고 있어요...
+              {isTTSLoading
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                : <Volume2 className="w-3.5 h-3.5 animate-pulse text-accent" />
+              }
+              {isTTSLoading ? "음성 생성 중..." : "AI가 말하고 있어요..."}
             </div>
           </div>
         )}
@@ -365,7 +388,7 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={toggleListening}
-            disabled={isLoading || isSpeaking}
+            disabled={micDisabled}
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 ${
               isListening
                 ? "bg-destructive text-destructive-foreground shadow-lg scale-110 animate-pulse"
@@ -374,15 +397,7 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
           >
             {isListening ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
           </button>
-          <span className="text-xs text-muted-foreground">
-            {isListening
-              ? "듣고 있어요... 탭하여 중지"
-              : isSpeaking
-                ? "AI가 말하고 있어요"
-                : isLoading
-                  ? "AI가 생각하고 있어요..."
-                  : "탭하여 말하기"}
-          </span>
+          <span className="text-xs text-muted-foreground text-center">{statusText}</span>
         </div>
       </div>
     </div>
