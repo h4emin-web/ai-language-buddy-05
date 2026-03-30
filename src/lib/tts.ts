@@ -1,12 +1,13 @@
-// Gemini TTS — 사람처럼 자연스러운 음성 출력
-// Model: gemini-2.5-flash-preview-tts
+// Gemini TTS — Pro 모델 우선, 실패시 Flash 자동 폴백
 // Returns base64 LINEAR16 PCM (24kHz, mono)
 
-const TTS_URL = (key: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(key)}`
+const TTS_MODELS = [
+  'gemini-2.5-pro-preview-tts',
+  'gemini-2.5-flash-preview-tts',
+]
 
-// Multilingual voice — Kore sounds natural across EN/JA/ZH
-const VOICE = 'Kore'
+// Aoede: breezy & natural / Sulafat: warm / Achernar: soft
+const VOICE = 'Aoede'
 
 let currentCtx: AudioContext | null = null
 let currentSource: AudioBufferSourceNode | null = null
@@ -24,6 +25,36 @@ export function stopSpeaking() {
   cleanup()
 }
 
+async function fetchAudioB64(text: string, apiKey: string): Promise<string> {
+  for (const model of TTS_MODELS) {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } },
+          },
+        }),
+      }
+    )
+
+    if (!resp.ok) {
+      if (resp.status === 404) continue // 모델 없으면 다음 시도
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.error?.message || `TTS HTTP ${resp.status}`)
+    }
+
+    const data = await resp.json()
+    const b64: string | undefined = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+    if (b64) return b64
+  }
+  throw new Error('TTS: 사용 가능한 모델 없음')
+}
+
 export async function speakWithGemini(
   text: string,
   apiKey: string,
@@ -32,32 +63,7 @@ export async function speakWithGemini(
 ): Promise<void> {
   cleanup()
 
-  const resp = await fetch(TTS_URL(apiKey), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text }] }],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: VOICE },
-          },
-        },
-      },
-    }),
-  })
-
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}))
-    throw new Error(err.error?.message || `TTS HTTP ${resp.status}`)
-  }
-
-  const data = await resp.json()
-  const audioB64: string | undefined =
-    data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
-
-  if (!audioB64) throw new Error('TTS: 오디오 데이터 없음')
+  const audioB64 = await fetchAudioB64(text, apiKey)
 
   // Decode base64 → Uint8Array (PCM 16-bit LE, 24kHz, mono)
   const binary = atob(audioB64)
