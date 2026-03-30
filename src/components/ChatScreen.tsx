@@ -170,7 +170,7 @@ const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
       return;
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.");
       return;
