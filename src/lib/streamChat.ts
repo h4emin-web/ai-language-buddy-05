@@ -61,13 +61,14 @@ IMPORTANT: The 교정 line must always be in English. Only 설명 is in Korean.`
 export type Msg = { role: 'user' | 'assistant'; content: string }
 
 function toGeminiContents(messages: Msg[]) {
-  if (messages.length === 0) {
-    return [{ role: 'user', parts: [{ text: 'Start.' }] }]
-  }
-  return messages.map((m) => ({
+  // Gemini requires contents to start with 'user' role.
+  // The initial greeting was triggered by 'Start.' so we always prepend it
+  // to keep the history valid: user(Start) → model(greeting) → user → model → ...
+  const history = messages.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }))
+  return [{ role: 'user', parts: [{ text: 'Start.' }] }, ...history]
 }
 
 export async function streamChat({
