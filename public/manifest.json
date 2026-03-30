@@ -1,0 +1,18 @@
+{
+  "name": "AI 전화 외국어",
+  "short_name": "AI 외국어",
+  "description": "AI와 실시간 대화하며 외국어 실력을 키워보세요",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8f8fc",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
