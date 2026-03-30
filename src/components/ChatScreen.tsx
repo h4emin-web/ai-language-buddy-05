@@ -80,10 +80,12 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
 
   // Gemini TTS
   const speak = useCallback(async (text: string) => {
+    // Strip ruby/pinyin readings like 学校(がっこう) → 学校, 你好(nǐ hǎo) → 你好
+    const ttsText = text.replace(/\([\u3040-\u30FFa-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s·]+\)/gi, '');
     setIsTTSLoading(true);
     try {
       await speakWithGemini(
-        text,
+        ttsText,
         apiKey,
         () => { setIsTTSLoading(false); setIsSpeaking(true); },
         () => setIsSpeaking(false),
