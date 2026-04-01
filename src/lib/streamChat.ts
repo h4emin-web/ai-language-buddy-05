@@ -170,20 +170,20 @@ export async function autoTranslateKorean(
 ): Promise<KoreanTranslateResult> {
   const targetLang = langNames[language] || 'English'
 
-  const prompt = `The user is practicing ${targetLang} but mixed in some Korean words or phrases.
+  const prompt = `The user is practicing ${targetLang}. Their message contains Korean — either fully in Korean or mixed with ${targetLang}.
 
 User's message: "${text}"
 
 Your job:
-1. Find every Korean word or phrase in the message
-2. Translate each one into ${targetLang} naturally in context
-3. Return the entire message rewritten fully in ${targetLang}
+1. Translate ALL Korean parts into ${targetLang} naturally
+2. Return the entire message rewritten fully in ${targetLang} (no Korean remaining)
+3. Always set hasKorean to true if there is any Korean in the message
 
 Respond ONLY with valid JSON, no markdown:
 {
   "hasKorean": true,
   "translated": "complete message rewritten in ${targetLang}",
-  "explanation": "한 줄로 변환 내용 설명, 반드시 한국어로 (예: 밥→ご飯, 피곤해→累)"
+  "explanation": "한 줄로 변환 내용 설명, 반드시 한국어로 (예: 배고파→I'm hungry, 밥→ご飯)"
 }
 
 IMPORTANT: The "explanation" field must always be written in Korean, regardless of the target language.`
