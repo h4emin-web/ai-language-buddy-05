@@ -48,7 +48,7 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
     setIsVerifying(true);
     try {
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -164,17 +164,19 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => {
-              localStorage.removeItem(API_KEY_STORAGE);
-              setApiKeyInput("");
-              setApiKeyError("");
-              setStep("apikey");
-            }}
-            className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors mt-4 underline underline-offset-2"
-          >
-            API 키 변경
-          </button>
+          {!ENV_API_KEY && (
+            <button
+              onClick={() => {
+                localStorage.removeItem(API_KEY_STORAGE);
+                setApiKeyInput("");
+                setApiKeyError("");
+                setStep("apikey");
+              }}
+              className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors mt-4 underline underline-offset-2"
+            >
+              API 키 변경
+            </button>
+          )}
         </div>
       )}
 
