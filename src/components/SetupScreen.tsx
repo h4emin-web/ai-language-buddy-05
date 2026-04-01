@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Globe, MessageCircle, Sparkles, KeyRound, ExternalLink } from "lucide-react";
+import { Globe, MessageCircle, Sparkles } from "lucide-react";
 
 export type Language = "english" | "japanese" | "chinese";
 export type Topic = "daily" | "travel" | "food" | "movies" | "work" | "free";
 
 interface SetupScreenProps {
-  onStart: (language: Language, topic: Topic, apiKey: string) => void;
+  onStart: (language: Language, topic: Topic) => void;
 }
 
 const languages: { id: Language; label: string; flag: string; sub: string }[] = [
@@ -23,50 +23,9 @@ const topics: { id: Topic; label: string; emoji: string }[] = [
   { id: "free", label: "프리토킹", emoji: "💬" },
 ];
 
-const API_KEY_STORAGE = "alb_gemini_key";
-// If VITE_GEMINI_API_KEY env var is set (Vercel), use it directly
-const ENV_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-
-function getEffectiveKey() {
-  return ENV_API_KEY || localStorage.getItem(API_KEY_STORAGE) || "";
-}
-
 const SetupScreen = ({ onStart }: SetupScreenProps) => {
-  const savedKey = getEffectiveKey();
-  const [step, setStep] = useState<"apikey" | "language" | "topic">(
-    savedKey ? "language" : "apikey"
-  );
-  const [apiKeyInput, setApiKeyInput] = useState(savedKey);
-  const [apiKeyError, setApiKeyError] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [step, setStep] = useState<"language" | "topic">("language");
   const [selectedLanguage, setSelectedLanguage] = useState<Language | null>(null);
-
-  const handleVerifyKey = async () => {
-    const key = apiKeyInput.trim();
-    if (!key) return;
-    setApiKeyError("");
-    setIsVerifying(true);
-    try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Hi" }] }] }),
-        }
-      );
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `HTTP ${resp.status}`);
-      }
-      localStorage.setItem(API_KEY_STORAGE, key);
-      setStep("language");
-    } catch (e) {
-      setApiKeyError(e instanceof Error ? e.message : "API 키가 유효하지 않습니다");
-    } finally {
-      setIsVerifying(false);
-    }
-  };
 
   const handleLanguageSelect = (lang: Language) => {
     setSelectedLanguage(lang);
@@ -74,14 +33,11 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
   };
 
   const handleTopicSelect = (topic: Topic) => {
-    if (selectedLanguage) {
-      onStart(selectedLanguage, topic, apiKeyInput.trim() || localStorage.getItem(API_KEY_STORAGE) || "");
-    }
+    if (selectedLanguage) onStart(selectedLanguage, topic);
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      {/* Header */}
       <div className="text-center mb-12">
         <div className="inline-flex items-center gap-2 gradient-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-medium mb-6">
           <Sparkles className="w-4 h-4" />
@@ -95,49 +51,6 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
         </p>
       </div>
 
-      {/* Step: API Key */}
-      {step === "apikey" && (
-        <div className="w-full max-w-md space-y-4">
-          <div className="flex items-center gap-2 mb-6">
-            <KeyRound className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-semibold">Gemini API 키 입력</h2>
-          </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            Google AI Studio에서 무료로 발급받은 API 키를 입력하세요.
-            키는 이 기기에만 저장됩니다.
-          </p>
-          <a
-            href="https://aistudio.google.com/app/apikey"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline mb-4"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Google AI Studio에서 무료 발급받기
-          </a>
-          <input
-            type="password"
-            placeholder="AIza... (Gemini API Key)"
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && !isVerifying && handleVerifyKey()}
-            className="w-full px-4 py-3 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm"
-            autoFocus
-          />
-          {apiKeyError && (
-            <p className="text-sm text-destructive mt-1">{apiKeyError}</p>
-          )}
-          <button
-            onClick={handleVerifyKey}
-            disabled={!apiKeyInput.trim() || isVerifying}
-            className="w-full py-3 rounded-xl gradient-primary text-primary-foreground font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          >
-            {isVerifying ? "확인 중..." : "시작하기"}
-          </button>
-        </div>
-      )}
-
-      {/* Step: Language */}
       {step === "language" && (
         <div className="w-full max-w-md space-y-4">
           <div className="flex items-center gap-2 mb-6">
@@ -153,9 +66,7 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
               >
                 <span className="text-4xl">{lang.flag}</span>
                 <div className="flex-1">
-                  <div className="font-semibold text-lg group-hover:text-primary transition-colors">
-                    {lang.label}
-                  </div>
+                  <div className="font-semibold text-lg group-hover:text-primary transition-colors">{lang.label}</div>
                   <div className="text-muted-foreground text-sm">{lang.sub}</div>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all">
@@ -164,23 +75,9 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
               </button>
             ))}
           </div>
-          {!ENV_API_KEY && (
-            <button
-              onClick={() => {
-                localStorage.removeItem(API_KEY_STORAGE);
-                setApiKeyInput("");
-                setApiKeyError("");
-                setStep("apikey");
-              }}
-              className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors mt-4 underline underline-offset-2"
-            >
-              API 키 변경
-            </button>
-          )}
         </div>
       )}
 
-      {/* Step: Topic */}
       {step === "topic" && (
         <div className="w-full max-w-md space-y-4">
           <div className="flex items-center gap-2 mb-2">
@@ -211,11 +108,7 @@ const SetupScreen = ({ onStart }: SetupScreenProps) => {
                 }`}
               >
                 <span className="text-3xl">{topic.emoji}</span>
-                <span
-                  className={`font-medium text-sm ${
-                    topic.id === "free" ? "" : "group-hover:text-primary"
-                  } transition-colors`}
-                >
+                <span className={`font-medium text-sm ${topic.id === "free" ? "" : "group-hover:text-primary"} transition-colors`}>
                   {topic.label}
                 </span>
               </button>

@@ -1,4 +1,3 @@
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const MODEL = 'gemini-2.5-flash'
 
 const systemPrompts: Record<string, string> = {
@@ -75,9 +74,6 @@ IMPORTANT: The 교정 line must always be in English. Only 설명 is in Korean.`
 export type Msg = { role: 'user' | 'assistant'; content: string }
 
 function toGeminiContents(messages: Msg[]) {
-  // Gemini requires contents to start with 'user' role.
-  // The initial greeting was triggered by 'Start.' so we always prepend it
-  // to keep the history valid: user(Start) → model(greeting) → user → model → ...
   const history = messages.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -85,36 +81,42 @@ function toGeminiContents(messages: Msg[]) {
   return [{ role: 'user', parts: [{ text: 'Start.' }] }, ...history]
 }
 
+async function callGenerate(payload: object): Promise<Response> {
+  return fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: MODEL, payload }),
+  })
+}
+
 export async function streamChat({
   messages,
   language,
   topic,
-  apiKey,
   onDelta,
   onDone,
 }: {
   messages: Msg[]
   language: string
   topic: string
-  apiKey: string
   onDelta: (chunk: string) => void
   onDone: () => void
 }) {
   const lang = language || 'english'
   const systemPrompt = `${systemPrompts[lang] || systemPrompts.english}\n\n${topicStarters[lang]?.[topic] || topicStarters.english.free}`
 
-  const resp = await fetch(
-    `${GEMINI_BASE}/models/${MODEL}:streamGenerateContent?key=${encodeURIComponent(apiKey)}&alt=sse`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+  const resp = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL,
+      payload: {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: toGeminiContents(messages),
         generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
-      }),
-    }
-  )
+      },
+    }),
+  })
 
   if (!resp.ok || !resp.body) {
     const err = await resp.json().catch(() => ({}))
@@ -165,7 +167,6 @@ const langNames: Record<string, string> = {
 export async function autoTranslateKorean(
   text: string,
   language: string,
-  apiKey: string,
 ): Promise<KoreanTranslateResult> {
   const targetLang = langNames[language] || 'English'
 
@@ -187,17 +188,10 @@ Respond ONLY with valid JSON, no markdown:
 
 IMPORTANT: The "explanation" field must always be written in Korean, regardless of the target language.`
 
-  const resp = await fetch(
-    `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1 },
-      }),
-    }
-  )
+  const resp = await callGenerate({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1 },
+  })
 
   if (!resp.ok) throw new Error(`translate HTTP ${resp.status}`)
 
@@ -212,20 +206,13 @@ IMPORTANT: The "explanation" field must always be written in Korean, regardless 
   }
 }
 
-export async function correctText(text: string, language: string, apiKey: string): Promise<string> {
+export async function correctText(text: string, language: string): Promise<string> {
   const lang = language || 'english'
   const prompt = correctionPrompts[lang] || correctionPrompts.english
 
-  const resp = await fetch(
-    `${GEMINI_BASE}/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: `${prompt}\n\nSentence: "${text}"` }] }],
-      }),
-    }
-  )
+  const resp = await callGenerate({
+    contents: [{ role: 'user', parts: [{ text: `${prompt}\n\nSentence: "${text}"` }] }],
+  })
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}))

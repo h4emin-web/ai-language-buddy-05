@@ -8,7 +8,6 @@ import ReactMarkdown from "react-markdown";
 interface ChatScreenProps {
   language: Language;
   topic: Topic;
-  apiKey: string;
   onEnd: () => void;
 }
 
@@ -33,10 +32,9 @@ const speechLangMap: Record<Language, string> = {
   chinese: "zh-CN",
 };
 
-// Declare SpeechRecognition types (not in all TS envs)
 type SpeechRecognitionInstance = InstanceType<typeof window.SpeechRecognition>;
 
-const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
+const ChatScreen = ({ language, topic, onEnd }: ChatScreenProps) => {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -53,11 +51,10 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const messagesRef = useRef<Msg[]>([]);
-  const accumulatedRef = useRef(""); // manual-stop STT accumulator
+  const accumulatedRef = useRef("");
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // Timer
   useEffect(() => {
     const id = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
@@ -65,12 +62,10 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     return () => clearInterval(id);
   }, []);
 
-  // Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, liveTranscript]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopSpeaking();
@@ -78,9 +73,7 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     };
   }, []);
 
-  // Gemini TTS
   const speak = useCallback(async (text: string) => {
-    // Strip ruby readings like 学校(がっこう) → 学校, and remove [拼音]: lines for Chinese
     const ttsText = text
       .replace(/\[拼音\]:.*$/gm, '')
       .replace(/\([\u3040-\u30FFa-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü\s·]+\)/gi, '')
@@ -89,7 +82,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     try {
       await speakWithGemini(
         ttsText,
-        apiKey,
         () => { setIsTTSLoading(false); setIsSpeaking(true); },
         () => setIsSpeaking(false),
       );
@@ -98,9 +90,8 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
       setIsTTSLoading(false);
       setIsSpeaking(false);
     }
-  }, [apiKey]);
+  }, []);
 
-  // Start conversation with AI greeting
   useEffect(() => {
     let cancelled = false;
     const start = async () => {
@@ -111,7 +102,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
           messages: [],
           language,
           topic,
-          apiKey,
           onDelta: (chunk) => {
             if (cancelled) return;
             assistantSoFar += chunk;
@@ -127,9 +117,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
         if (cancelled) return;
         console.error(e);
         setIsLoading(false);
-        const fallback = "안녕하세요! 대화를 시작해볼까요?";
-        setMessages([{ role: "assistant", content: fallback }]);
-        speak(fallback);
       }
     };
     start();
@@ -137,7 +124,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Send user message → AI response
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
@@ -153,7 +139,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
         messages: newMessages,
         language,
         topic,
-        apiKey,
         onDelta: (chunk) => {
           assistantSoFar += chunk;
           setMessages((prev) => {
@@ -173,9 +158,8 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
       console.error(e);
       setIsLoading(false);
     }
-  }, [isLoading, language, topic, apiKey, speak]);
+  }, [isLoading, language, topic, speak]);
 
-  // Korean 감지 → 번역 → AI 전송
   const handleUserInput = useCallback(async (rawText: string) => {
     const hasKoreanChars = /[가-힣]/.test(rawText);
     if (!hasKoreanChars) {
@@ -184,9 +168,9 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     }
     setIsTranslating(true);
     try {
-      const result = await autoTranslateKorean(rawText, language, apiKey);
+      const result = await autoTranslateKorean(rawText, language);
       if (result.hasKorean) {
-        const noteIdx = messagesRef.current.length; // 곧 추가될 user 메시지 index
+        const noteIdx = messagesRef.current.length;
         setKoreanNotes((prev) => ({ ...prev, [noteIdx]: result.explanation }));
         sendMessage(result.translated);
       } else {
@@ -197,14 +181,12 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     } finally {
       setIsTranslating(false);
     }
-  }, [language, apiKey, sendMessage]);
+  }, [language, sendMessage]);
 
-  // STT — click to start, click again to stop & send
   const toggleListening = useCallback(() => {
     if (isLoading || isSpeaking || isTTSLoading) return;
 
     if (isListening) {
-      // User clicked stop → send accumulated transcript
       recognitionRef.current?.stop();
       return;
     }
@@ -224,23 +206,17 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     const r = new SR() as SpeechRecognitionInstance;
     r.lang = speechLangMap[language];
     r.interimResults = true;
-    r.continuous = true;        // keep recording until user stops manually
+    r.continuous = true;
     r.maxAlternatives = 1;
 
-    r.onstart = () => {
-      setIsListening(true);
-      setLiveTranscript("");
-    };
+    r.onstart = () => { setIsListening(true); setLiveTranscript(""); };
 
     r.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          accumulatedRef.current += t;
-        } else {
-          interim = t;
-        }
+        if (event.results[i].isFinal) accumulatedRef.current += t;
+        else interim = t;
       }
       setLiveTranscript(accumulatedRef.current + interim);
     };
@@ -268,14 +244,14 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
     if (corrections[idx] || correctingIdx === idx) return;
     setCorrectingIdx(idx);
     try {
-      const result = await correctText(text, language, apiKey);
+      const result = await correctText(text, language);
       setCorrections((prev) => ({ ...prev, [idx]: result }));
     } catch (e) {
       console.error(e);
     } finally {
       setCorrectingIdx(null);
     }
-  }, [corrections, correctingIdx, language, apiKey]);
+  }, [corrections, correctingIdx, language]);
 
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
@@ -295,15 +271,10 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
 
   return (
     <div className="flex flex-col h-screen max-h-screen">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              stopSpeaking();
-              recognitionRef.current?.abort();
-              onEnd();
-            }}
+            onClick={() => { stopSpeaking(); recognitionRef.current?.abort(); onEnd(); }}
             className="w-9 h-9 rounded-full bg-secondary hover:bg-destructive hover:text-destructive-foreground flex items-center justify-center transition-all"
             title="대화 종료"
           >
@@ -325,7 +296,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, idx) => (
           <div key={idx}>
@@ -379,11 +349,7 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
                     disabled={correctingIdx === idx}
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-primary/5"
                   >
-                    {correctingIdx === idx ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-3 h-3" />
-                    )}
+                    {correctingIdx === idx ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                     교정하기
                   </button>
                 )}
@@ -392,7 +358,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
           </div>
         ))}
 
-        {/* Live transcript while recording */}
         {liveTranscript && (
           <div className="flex justify-end">
             <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed bg-primary/20 text-foreground/70 border border-primary/20">
@@ -404,7 +369,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
           </div>
         )}
 
-        {/* AI thinking */}
         {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
           <div className="flex justify-start">
             <div className="bg-card border border-border shadow-card px-4 py-3 rounded-2xl rounded-bl-md">
@@ -417,7 +381,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
           </div>
         )}
 
-        {/* Speaking indicators */}
         {(isSpeaking || isTTSLoading) && (
           <div className="flex justify-start">
             <div className="flex items-center gap-2 text-xs text-muted-foreground px-2">
@@ -433,7 +396,6 @@ const ChatScreen = ({ language, topic, apiKey, onEnd }: ChatScreenProps) => {
         <div ref={bottomRef} />
       </div>
 
-      {/* Mic Button */}
       <div className="px-4 py-6 border-t border-border bg-card/80 backdrop-blur-sm">
         <div className="flex flex-col items-center gap-3">
           <button

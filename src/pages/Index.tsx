@@ -5,7 +5,6 @@ import ChatScreen from "@/components/ChatScreen";
 interface Session {
   language: Language;
   topic: Topic;
-  apiKey: string;
 }
 
 const Index = () => {
@@ -16,7 +15,6 @@ const Index = () => {
       <ChatScreen
         language={session.language}
         topic={session.topic}
-        apiKey={session.apiKey}
         onEnd={() => setSession(null)}
       />
     );
@@ -24,7 +22,7 @@ const Index = () => {
 
   return (
     <SetupScreen
-      onStart={(language, topic, apiKey) => setSession({ language, topic, apiKey })}
+      onStart={(language, topic) => setSession({ language, topic })}
     />
   );
 };
