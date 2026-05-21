@@ -1,9 +1,9 @@
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-1.5-flash'
 
 const systemPrompts: Record<string, string> = {
-  english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 2-3 sentences and always end with a question.`,
-  japanese: `あなたは日本語会話チューターです。日本語のみで話してください。2〜3文以内で、必ず質問で締めくくってください。すべての漢字にひらがなのルビを括弧で付けてください（例：学校(がっこう)、食(た)べる）。`,
-  chinese: `你是中文会话辅导老师。只说中文。回答2-3句话，每次必须以问题结尾。每次回答后，另起一行写"[拼音]: "，然后写出整句话的拼音（例：[拼音]: nǐ hǎo，wǒ shì lǎoshī。）。`,
+  english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 1-2 short sentences and always end with a question. Be concise.`,
+  japanese: `あなたは日本語会話チューターです。日本語のみで話してください。必ず1〜2文以内で簡潔に答え、質問で締めくくってください。`,
+  chinese: `你是中文会话辅导老师。只说中文。回答1-2句话，简洁，每次必须以问题结尾。`,
 }
 
 const topicStarters: Record<string, Record<string, string>> = {
@@ -113,7 +113,7 @@ export async function streamChat({
       payload: {
         system_instruction: { parts: [{ text: systemPrompt }] },
         contents: toGeminiContents(messages),
-        generationConfig: { temperature: 0.9, maxOutputTokens: 400 },
+        generationConfig: { temperature: 0.9, maxOutputTokens: 150 },
       },
     }),
   })
@@ -190,7 +190,7 @@ IMPORTANT: The "explanation" field must always be written in Korean, regardless 
 
   const resp = await callGenerate({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.1 },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
   })
 
   if (!resp.ok) throw new Error(`translate HTTP ${resp.status}`)
@@ -212,6 +212,7 @@ export async function correctText(text: string, language: string): Promise<strin
 
   const resp = await callGenerate({
     contents: [{ role: 'user', parts: [{ text: `${prompt}\n\nSentence: "${text}"` }] }],
+    generationConfig: { maxOutputTokens: 200 },
   })
 
   if (!resp.ok) {
