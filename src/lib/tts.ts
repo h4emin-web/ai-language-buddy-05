@@ -1,4 +1,4 @@
-const TTS_MODEL = 'gemini-2.5-flash-preview-tts'
+const TTS_MODEL = 'gemini-2.0-flash-preview-tts'
 const VOICE = 'Aoede'
 
 let currentCtx: AudioContext | null = null

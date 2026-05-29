@@ -1,4 +1,4 @@
-const MODEL = 'gemini-1.5-flash'
+const MODEL = 'gemini-1.5-flash-8b'
 
 const systemPrompts: Record<string, string> = {
   english: `You are a friendly English conversation tutor. Speak English only. Keep replies to 1-2 short sentences and always end with a question. Be concise.`,
